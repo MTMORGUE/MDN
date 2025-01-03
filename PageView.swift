@@ -113,7 +113,9 @@ struct PageView: View {
     func viewBlock(_ block: PageContentType) -> some View {
         switch block {
         case .text(let content):
-            Text(content)
+            // CHANGED HERE:
+            // Instead of `Text(content)`, render with Markdown so headings, lists, etc. show properly.
+            CustomMarkdownView(markdown: content)
                 .padding()
                 .background(Color(UIColor.secondarySystemBackground))
                 .cornerRadius(8)
@@ -197,7 +199,7 @@ struct PageView: View {
                 ))
                 .frame(height: 200)
                 .border(Color.gray)
-                .focused($focusedBlockID, equals: block.wrappedValue.id) // Keeps focus on this block
+                .focused($focusedBlockID, equals: block.wrappedValue.id)
                 .onTapGesture {
                     focusedBlockID = block.wrappedValue.id
                 }
@@ -344,7 +346,7 @@ struct PageView: View {
                 let isChecked = line.contains("[x]")
                 if let bracket = line.range(of: "]") {
                     let after = line[bracket.upperBound...].trimmingCharacters(in: .whitespaces)
-                    result.append(.checkbox(isChecked, after))
+                    result.append(.checkbox(isChecked, String(after)))
                 }
             } else if line.hasPrefix("[") && line.contains("](") {
                 if let closeB = line.firstIndex(of: "]"),
@@ -363,6 +365,7 @@ struct PageView: View {
                     result.append(.text(line))
                 }
             } else if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                // Skip empty lines
             } else {
                 result.append(.text(line))
             }
