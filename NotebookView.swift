@@ -22,7 +22,6 @@ struct NotebookView: View {
 
     var body: some View {
         List(selection: $selectedPageIDs) {
-            // Iterate pages by object, not indices, so multi-select works
             ForEach(updatedNotebook.pages) { page in
                 NavigationLink(
                     destination: PageView(
@@ -37,25 +36,20 @@ struct NotebookView: View {
             .onDelete(perform: deletePages)
         }
         .navigationTitle(updatedNotebook.title)
-        .environment(\.editMode, $editMode)  // Apply custom edit mode
+        // Apply custom edit mode
+        .environment(\.editMode, $editMode)
         .toolbar {
-            // 1) Center (principal) "Done" button only in edit mode
-            ToolbarItem(placement: .principal) {
-                if editMode == .active {
-                    Button("Done") {
-                        editMode = .inactive
-                        selectedPageIDs.removeAll()
-                    }
-                }
-            }
+            // 1) Left side: (optional) – none shown here
 
-            // 2) Right side: "Edit" when inactive, "..." menu when active
+            // 2) Right side: “Edit” when inactive, or “...” when active
             ToolbarItem(placement: .navigationBarTrailing) {
                 if editMode == .inactive {
+                    // Normal mode: Show "Edit" button
                     Button("Edit") {
                         editMode = .active
                     }
                 } else {
+                    // Edit mode: Show "..." menu with Create, Delete, Rename, Done
                     Menu("...") {
                         Button("Create") {
                             addPage()
@@ -66,14 +60,16 @@ struct NotebookView: View {
                         Button("Rename") {
                             renameSelectedPage()
                         }
+                        // **Done** item to exit edit mode
+                        Button("Done") {
+                            editMode = .inactive
+                            selectedPageIDs.removeAll()
+                        }
                     }
                 }
             }
         }
-        .onDisappear {
-            // Save changes back to the store
-            store.updateNotebook(updatedNotebook)
-        }
+        // 3) Rename page sheet
         .sheet(isPresented: $isRenameSheetPresented) {
             VStack(spacing: 20) {
                 Text("Rename Page").font(.headline)
@@ -98,28 +94,28 @@ struct NotebookView: View {
             }
             .presentationDetents([.medium])
         }
+        .onDisappear {
+            // Save back to store
+            store.updateNotebook(updatedNotebook)
+        }
     }
 
     // MARK: - Actions
 
-    /// Swipe-to-delete for pages
     func deletePages(at offsets: IndexSet) {
         updatedNotebook.pages.remove(atOffsets: offsets)
     }
 
-    /// Create a new page
     func addPage() {
         let newPage = Page(title: "New Page", content: [.text("Empty content...")])
         updatedNotebook.pages.append(newPage)
     }
 
-    /// Delete all selected pages
     func deleteSelectedPages() {
         updatedNotebook.pages.removeAll { selectedPageIDs.contains($0.id) }
         selectedPageIDs.removeAll()
     }
 
-    /// Rename the first selected page
     func renameSelectedPage() {
         guard let firstID = selectedPageIDs.first,
               let pg = updatedNotebook.pages.first(where: { $0.id == firstID }) else {

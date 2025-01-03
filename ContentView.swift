@@ -13,101 +13,102 @@ struct ContentView: View {
     @State private var renameTitle = ""
     @State private var renameNotebookID: UUID?
 
-    // For the settings side menu
+    // Show/hide the side menu
     @State private var showSettingsMenu = false
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            // Main notebook list + toolbar
-            mainNotebookList
-
-            // If settings menu is shown, overlay a dim background and the side menu
-            if showSettingsMenu {
-                // 1) Dim background covering the screen
-                Color.black.opacity(0.3)
-                    .edgesIgnoringSafeArea(.all)
-                    .onTapGesture {
-                        withAnimation {
-                            showSettingsMenu = false
+        ZStack(alignment: .topLeading) {
+            // 1) Main Notebook List in a NavigationView
+            NavigationView {
+                List(selection: $selectedNotebookIDs) {
+                    ForEach(store.notebooks) { notebook in
+                        NavigationLink(destination: NotebookView(notebook: notebook)) {
+                            Text(notebook.title)
                         }
                     }
-
-                // 2) Slide-in side menu aligned with the top of the screen (thus flush w/ the nav bar)
-                HStack(alignment: .top, spacing: 0) {
-                    SettingsMenuView()
-                        // Ensures the menu only grows as tall as its contents
-                        .fixedSize(horizontal: false, vertical: true)
-                        // Set an explicit width if desired
-                        .frame(width: 250)
-                        // Slide in from the left
-                        .transition(.move(edge: .leading))
-
-                    Spacer()
+                    .onDelete(perform: deleteNotebooks)
                 }
-            }
-        }
-        .sheet(isPresented: $isRenameSheetPresented) {
-            renameSheet
-        }
-    }
-
-    // MARK: - Main Notebook List
-
-    private var mainNotebookList: some View {
-        NavigationView {
-            List(selection: $selectedNotebookIDs) {
-                ForEach(store.notebooks) { notebook in
-                    NavigationLink(destination: NotebookView(notebook: notebook)) {
-                        Text(notebook.title)
-                    }
-                }
-                .onDelete(perform: deleteNotebooks)
-            }
-            .navigationTitle("Notebooks")
-            // Apply our custom edit mode to the list
-            .environment(\.editMode, $editMode)
-            .toolbar {
-                // Left side: Gear button (only if not in edit mode)
-                ToolbarItem(placement: .navigationBarLeading) {
-                    if editMode == .inactive {
+                .navigationTitle("Notebooks")
+                // Apply the custom edit mode to the list
+                .environment(\.editMode, $editMode)
+                .toolbar {
+                    // Left side: Gear button to open side menu
+                    ToolbarItem(placement: .navigationBarLeading) {
                         Button {
                             withAnimation {
-                                showSettingsMenu.toggle()
+                                showSettingsMenu = true
                             }
                         } label: {
                             Image(systemName: "gearshape")
                         }
                     }
-                }
 
-                // Right side: Edit or "..." menu (depending on editMode)
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if editMode == .inactive {
-                        // Show Edit button if not in edit mode
-                        Button("Edit") {
-                            editMode = .active
-                        }
-                    } else {
-                        // In edit mode, show the "..." menu with Create, Delete, Rename
-                        Menu("...") {
-                            Button("Create") {
-                                createNotebook()
+                    // Right side: Edit or "..." menu
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        if editMode == .inactive {
+                            // Show Edit button if not in edit mode
+                            Button("Edit") {
+                                editMode = .active
                             }
-                            Button("Delete") {
-                                deleteSelectedNotebooks()
-                            }
-                            Button("Rename") {
-                                renameSelectedNotebook()
+                        } else {
+                            // In edit mode, show the "..." menu with Create, Delete, Rename, Done
+                            Menu("...") {
+                                Button("Create") {
+                                    createNotebook()
+                                }
+                                Button("Delete") {
+                                    deleteSelectedNotebooks()
+                                }
+                                Button("Rename") {
+                                    renameSelectedNotebook()
+                                }
+                                // Done button so user can exit edit mode
+                                Button("Done") {
+                                    editMode = .inactive
+                                    selectedNotebookIDs.removeAll()
+                                }
                             }
                         }
                     }
                 }
             }
+
+            // 2) If showSettingsMenu, dim background and show side menu
+            if showSettingsMenu {
+                // Dim overlay
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        // Close the menu on tap
+                        withAnimation {
+                            showSettingsMenu = false
+                        }
+                    }
+
+                // Side menu
+                HStack(spacing: 0) {
+                    // Replace SettingsView with your own or merged SettingsView
+                    SettingsView {
+                        // Provide a closure to close the menu
+                        withAnimation {
+                            showSettingsMenu = false
+                        }
+                    }
+                    .frame(width: 250)
+                    .transition(.move(edge: .leading))
+
+                    Spacer()
+                }
+                .ignoresSafeArea(edges: .top)
+            }
+        }
+        // Present the rename sheet if needed
+        .sheet(isPresented: $isRenameSheetPresented) {
+            renameSheet
         }
     }
 
     // MARK: - Rename Sheet
-
     private var renameSheet: some View {
         VStack(spacing: 20) {
             Text("Rename Notebook").font(.headline)
@@ -161,35 +162,5 @@ struct ContentView: View {
         renameNotebookID = nb.id
         renameTitle = nb.title
         isRenameSheetPresented = true
-    }
-}
-
-// MARK: - Settings Menu View
-
-/// A minimal side menu that only grows to fit its content.
-/// Customize as needed.
-struct SettingsMenuView: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Settings")
-                .font(.headline)
-                .padding([.top, .horizontal])
-
-            Divider()
-
-            // Add your settings items here
-            Text("Profile")
-                .padding(.horizontal)
-            Text("Preferences")
-                .padding(.horizontal)
-            Text("About")
-                .padding(.horizontal)
-
-            Spacer()
-        }
-        // No .ignoresSafeArea() here, so it won't fill full height.
-        // We do want it flush with top, so no top padding.
-        .background(Color(UIColor.systemBackground))
-        .cornerRadius(8)
     }
 }

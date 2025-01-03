@@ -6,16 +6,24 @@ struct PageView: View {
     let notebookID: UUID
     @State var page: Page
 
+    // Toggles read-only vs. edit mode
     @State private var isEditing = false
+    // 0 = rendered edit, 1 = raw markdown
     @State private var editModeSelection = 0
+
+    // Local editing buffers
     @State private var blocks: [PageContentType] = []
     @State private var rawMarkdown = ""
 
-    @FocusState private var focusedBlockID: UUID? // Focus tracking for code blocks
+    // For focusing code blocks
+    @FocusState private var focusedBlockID: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
             if !isEditing {
+                // -------------------
+                // READ-ONLY MODE
+                // -------------------
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         ForEach(page.content.indices, id: \.self) { i in
@@ -25,15 +33,19 @@ struct PageView: View {
                     .padding()
                 }
             } else {
+                // -------------------
+                // EDIT MODE
+                // -------------------
                 Picker("Edit Mode", selection: $editModeSelection) {
                     Text("Rendered Edit").tag(0)
                     Text("Raw Markdown").tag(1)
                 }
-                .pickerStyle(SegmentedPickerStyle())
+                .pickerStyle(.segmented)
                 .padding(.horizontal)
                 .padding(.top, 8)
 
                 if editModeSelection == 0 {
+                    // RENDERED EDIT
                     HStack {
                         Spacer()
                         Menu {
@@ -67,7 +79,9 @@ struct PageView: View {
                     }
                     .listStyle(.inset)
                     .environment(\.editMode, .constant(.active))
+
                 } else {
+                    // RAW MARKDOWN EDIT
                     TextEditor(text: $rawMarkdown)
                         .border(Color.gray, width: 1)
                         .padding()
@@ -78,13 +92,34 @@ struct PageView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if isEditing {
-                    Button("Done") {
-                        finalizeEdits()
-                        isEditing = false
-                        store.updatePage(in: notebookID, page: page)
+                    // -------------
+                    // EDIT TOOLBAR
+                    // -------------
+                    Menu("...") {
+                        Button("Create") {
+                            blocks.append(.text("New Block"))
+                        }
+                        Button("Delete") {
+                            if !blocks.isEmpty {
+                                blocks.removeLast()
+                            }
+                        }
+                        Button("Rename") {
+                            // Placeholder for renaming the page, if desired
+                        }
+                        // SAVE: finalize changes, remain on the same page in read-only mode
+                        Button("Save") {
+                            finalizeEdits()
+                            isEditing = false
+                            store.updatePage(in: notebookID, page: page)
+                        }
                     }
                 } else {
+                    // -------------
+                    // READ-ONLY TOOLBAR
+                    // -------------
                     Button("Edit") {
+                        // Load current content into local edit buffers
                         blocks = page.content
                         rawMarkdown = blocksToMarkdown(blocks)
                         isEditing = true
@@ -92,29 +127,24 @@ struct PageView: View {
                 }
             }
         }
-        .onDisappear {
-            guard isEditing else { return }
-            finalizeEdits()
-            isEditing = false
-            store.updatePage(in: notebookID, page: page)
-        }
+        // Removed any .onDisappear code that automatically saves & might navigate
         .onChange(of: editModeSelection) { newVal in
             guard isEditing else { return }
             if newVal == 1 {
+                // If switching to raw markdown
                 rawMarkdown = blocksToMarkdown(blocks)
             } else {
+                // If switching back to rendered edit
                 blocks = parseMarkdown(rawMarkdown)
             }
         }
     }
 
-    // MARK: - Viewing Blocks (Read-Only)
+    // MARK: - Read-Only Rendering
     @ViewBuilder
     func viewBlock(_ block: PageContentType) -> some View {
         switch block {
         case .text(let content):
-            // CHANGED HERE:
-            // Instead of `Text(content)`, render with Markdown so headings, lists, etc. show properly.
             CustomMarkdownView(markdown: content)
                 .padding()
                 .background(Color(UIColor.secondarySystemBackground))
@@ -160,7 +190,7 @@ struct PageView: View {
         }
     }
 
-    // MARK: - Editable Blocks (Rendered Edit Mode)
+    // MARK: - Editable Rendering
     @ViewBuilder
     func editableBlockView(block: Binding<PageContentType>) -> some View {
         switch block.wrappedValue {
@@ -276,14 +306,17 @@ struct PageView: View {
         blocks.move(fromOffsets: offsets, toOffset: newOffset)
     }
 
-    // MARK: - Finalizing/Converting
+    // MARK: - Finalizing Edits
     private func finalizeEdits() {
+        // If in raw markdown mode, parse the text first
         if editModeSelection == 1 {
             blocks = parseMarkdown(rawMarkdown)
         }
+        // Update the page with final blocks
         page.content = blocks
     }
 
+    // MARK: - Conversion: Blocks <-> Markdown
     func blocksToMarkdown(_ blocks: [PageContentType]) -> String {
         var lines: [String] = []
         for block in blocks {
@@ -318,6 +351,7 @@ struct PageView: View {
         var result: [PageContentType] = []
         let lines = raw.components(separatedBy: .newlines)
         var i = 0
+
         while i < lines.count {
             let line = lines[i]
             if line.hasPrefix("```") {
@@ -331,6 +365,7 @@ struct PageView: View {
                 let codeText = codeLines.joined(separator: "\n")
                 result.append(.code(lang, codeText))
             } else if line.trimmingCharacters(in: .whitespaces).hasPrefix("|") {
+                // Table
                 var tableRows: [[String]] = []
                 while i < lines.count && lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("|") {
                     let row = lines[i]
@@ -343,17 +378,18 @@ struct PageView: View {
                 result.append(.table(tableRows))
                 continue
             } else if line.hasPrefix("- [") {
+                // Checkbox
                 let isChecked = line.contains("[x]")
                 if let bracket = line.range(of: "]") {
                     let after = line[bracket.upperBound...].trimmingCharacters(in: .whitespaces)
                     result.append(.checkbox(isChecked, String(after)))
                 }
             } else if line.hasPrefix("[") && line.contains("](") {
+                // File link
                 if let closeB = line.firstIndex(of: "]"),
                    let openP = line.firstIndex(of: "("),
                    let closeP = line.lastIndex(of: ")"),
-                   closeB < openP && openP < closeP
-                {
+                   closeB < openP && openP < closeP {
                     let label = String(line[line.index(after: line.startIndex)..<closeB])
                     let urlString = String(line[line.index(after: openP)..<closeP])
                     if let realURL = URL(string: urlString) {
@@ -365,7 +401,7 @@ struct PageView: View {
                     result.append(.text(line))
                 }
             } else if line.trimmingCharacters(in: .whitespaces).isEmpty {
-                // Skip empty lines
+                // skip
             } else {
                 result.append(.text(line))
             }
@@ -375,7 +411,7 @@ struct PageView: View {
     }
 }
 
-// MARK: - Supported Languages
+// Example language list:
 let supportedLanguages: [String] = [
     "plaintext", "bash", "c", "c++", "c#", "css", "dart", "diff", "go", "html",
     "java", "javascript", "json", "kotlin", "markdown", "objective-c", "perl",
